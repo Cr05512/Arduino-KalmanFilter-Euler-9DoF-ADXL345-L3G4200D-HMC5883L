@@ -269,9 +269,9 @@ void kalmanFilter()
   //Model Prediction
 
   //State prediction
-  phiX = phiX - bx*dt + (gyroX + sin(phiX)*tan(phiZ)*gyroY + cos(phiX)*tan(phiZ)*gyroZ)*dt;
-  phiY = phiY - by*dt + (cos(phiX)*gyroY - sin(phiZ)*gyroZ)*dt;
-  phiZ = phiZ - bz*dt + ((sin(phiX)/cos(phiZ))*gyroY + (cos(phiX)/cos(phiZ))*gyroZ)*dt;
+  phiX = phiX - bx*dt + (gyroX + sin(phiX)*tan(phiY)*gyroY + cos(phiX)*tan(phiY)*gyroZ)*dt;
+  phiY = phiY - by*dt + (cos(phiX)*gyroY - sin(phiX)*gyroZ)*dt;
+  phiZ = phiZ - bz*dt + ((sin(phiX)/cos(phiY))*gyroY + (cos(phiX)/cos(phiY))*gyroZ)*dt;
 
   //Covariance prediction
 
