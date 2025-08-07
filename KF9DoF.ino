@@ -1,10 +1,10 @@
+#include <string.h>
 #include "math.h"
 #include "Wire.h"
 #include <ADXL345.h>
 #include <HMC5883L.h>
 #include <L3G4200D.h>
-
- 
+#include "Matrix.h"
 
 #define degToRad(angleInDegrees) ((angleInDegrees) * M_PI / 180.0)
 #define radToDeg(angleInRadians) ((angleInRadians) * 180.0 / M_PI)
@@ -16,7 +16,6 @@ L3G4200D gyroscope;
 float accX, accY, accZ, gyroX, gyroY, gyroZ, magX, magY, magZ;
 Vector norm;
 
-
 float phiXa=0.0, phiYa=0.0, phiZm=0.0, phiX=0.0, phiY=0.0, phiZ=0.0, bx = 0.0, by = 0.0, bz = 0.0, V1 = 0.0, V2 = 0.0, V3 = 0.0, xHead, yHead;
 uint16_t t0 = 0, t1 = 0;
 float dt = 0.0;
@@ -27,31 +26,9 @@ float Qb = 0.0003;
 float Racc = 0.003;
 float Rmag = 0.001;
 
-float P00 = 1.0, P01 = 0.0, P02 = 0.0, P03 = 0.0, P04 = 0.0, P05 = 0.0;
-float P10 = 0.0, P11 = 1.0, P12 = 0.0, P13 = 0.0, P14 = 0.0, P15 = 0.0;
-float P20 = 0.0, P21 = 0.0, P22 = 1.0, P23 = 0.0, P24 = 0.0, P25 = 0.0;
-float P30 = 0.0, P31 = 0.0, P32 = 0.0, P33 = 1.0, P34 = 0.0, P35 = 0.0;
-float P40 = 0.0, P41 = 0.0, P42 = 0.0, P43 = 0.0, P44 = 1.0, P45 = 0.0;
-float P50 = 0.0, P51 = 0.0, P52 = 0.0, P53 = 0.0, P54 = 0.0, P55 = 1.0;
-
-float S00 = 1.0, S01 = 0.0, S02 = 0.0;
-float S10 = 0.0, S11 = 1.0, S12 = 0.0;
-float S20 = 0.0, S21 = 0.0, S22 = 1.0;
-float denS = 1.0;
-
-float S00inv = 1.0, S01inv = 0.0, S02inv = 0.0;
-float S10inv = 0.0, S11inv = 1.0, S12inv = 0.0;
-float S20inv = 0.0, S21inv = 0.0, S22inv = 1.0;
-
-float K00 = 0.0, K01 = 0.0, K02 = 0.0;
-float K10 = 0.0, K11 = 0.0, K12 = 0.0;
-float K20 = 0.0, K21 = 0.0, K22 = 0.0;
-float K30 = 0.0, K31 = 0.0, K32 = 0.0;
-float K40 = 0.0, K41 = 0.0, K42 = 0.0;
-float K50 = 0.0, K51 = 0.0, K52 = 0.0;
-
-float errX = 0.0, errY = 0.0, errZ = 0.0;
-
+float P[36] = {1,0,0,0,0,0, 0,1,0,0,0,0, 0,0,1,0,0,0, 0,0,0,1,0,0, 0,0,0,0,1,0, 0,0,0,0,0,1};
+float K[18];
+float S[9];
 
 void readAngles();
 void kalmanFilter();
@@ -152,170 +129,96 @@ void readAngles()
 
 void kalmanFilter()
 {
-  //Measurement update
+  // Measurement update
+  float H[18] = {1,0,0,0,0,0, 0,0,1,0,0,0, 0,0,0,0,1,0};
+  float Ht[18];
+  matrix_transpose(H, Ht, 3, 6);
 
-  //Innovavtion covariance S
-  S00 = Racc + P00;
-  S01 = P02;
-  S02 = P04;
-  S10 = P20;
-  S11 = Racc + P22;
-  S12 = P24;
-  S20 = P40;
-  S21 = P42;
-  S22 = Rmag + P44;
+  float R[9] = {Racc, 0, 0, 0, Racc, 0, 0, 0, Rmag};
 
-  denS = S00*S11*S22 - S00*S12*S21 - S01*S10*S22 + S01*S12*S20 + S02*S10*S21 - S02*S11*S20;
-  //Inverse Innovation covariance Sinv
-  S00inv = (S11*S22 - S12*S21)/denS;
-  S01inv = -(S01*S22 - S02*S21)/denS;
-  S02inv = (S01*S12 - S02*S11)/denS;
-  S10inv = -(S10*S22 - S12*S20)/denS;
-  S11inv = (S00*S22 - S02*S20)/denS;
-  S12inv = -(S00*S12 - S02*S10)/denS;
-  S20inv = (S10*S21 - S11*S20)/denS;
-  S21inv = -(S00*S21 - S01*S20)/denS;
-  S22inv = (S00*S11 - S01*S10)/denS;
+  float P_Ht[18];
+  matrix_multiply(P, Ht, P_Ht, 6, 6, 3);
 
-  S00 = S00inv;
-  S01 = S01inv;
-  S02 = S02inv;
-  S10 = S10inv;
-  S11 = S11inv;
-  S12 = S12inv;
-  S20 = S20inv;
-  S21 = S21inv;
-  S22 = S22inv;
+  float H_P_Ht[9];
+  matrix_multiply(H, P_Ht, H_P_Ht, 3, 6, 3);
 
+  matrix_add(H_P_Ht, R, S, 3, 3);
 
+  float S_inv[9];
+  if (matrix_invert(S, S_inv) == 0) {
+    // S is singular
+    return;
+  }
 
-  //Kalman Gain
-  K00 = P00*S00 + P02*S10 + P04*S20;
-  K01 = P00*S01 + P02*S11 + P04*S21;
-  K02 = P00*S02 + P02*S12 + P04*S22;
-  K10 = P10*S00 + P12*S10 + P14*S20;
-  K11 = P10*S01 + P12*S11 + P14*S21;
-  K12 = P10*S02 + P12*S12 + P14*S22;
-  K20 = P20*S00 + P22*S10 + P24*S20;
-  K21 = P20*S01 + P22*S11 + P24*S21;
-  K22 = P20*S02 + P22*S12 + P24*S22;
-  K30 = P30*S00 + P32*S10 + P34*S20;
-  K31 = P30*S01 + P32*S11 + P34*S21;
-  K32 = P30*S02 + P32*S12 + P34*S22;
-  K40 = P40*S00 + P42*S10 + P44*S20;
-  K41 = P40*S01 + P42*S11 + P44*S21;
-  K42 = P40*S02 + P42*S12 + P44*S22;
-  K50 = P50*S00 + P52*S10 + P54*S20;
-  K51 = P50*S01 + P52*S11 + P54*S21;
-  K52 = P50*S02 + P52*S12 + P54*S22;
+  matrix_multiply(P_Ht, S_inv, K, 6, 3, 3);
 
-  //State estimation
-  errX = phiXa - phiX;
-  errY = phiYa - phiY;
-  errZ = phiZm - phiZ;
-
+  // State estimation
+  float err[3] = {phiXa - phiX, phiYa - phiY, phiZm - phiZ};
   
-  phiX = phiX + K00*errX + K01*errY + K02*errZ;
-  bx = bx + K10*errX + K11*errY + K12*errZ;
-  phiY = phiY + K20*errX + K21*errY + K22*errZ;
-  by = by + K30*errX + K31*errY + K32*errZ;
-  phiZ = phiZ + K40*errX + K41*errY + K42*errZ;
-  bz = bz + K50*errX + K51*errY + K52*errZ;
-  //Covariance update
+  float K_err[6];
+  matrix_multiply(K, err, K_err, 6, 3, 1);
+
+  phiX += K_err[0];
+  bx += K_err[1];
+  phiY += K_err[2];
+  by += K_err[3];
+  phiZ += K_err[4];
+  bz += K_err[5];
+
+  // Covariance update
+  float K_H[36];
+  matrix_multiply(K, H, K_H, 6, 3, 6);
+
+  float I[36] = {1,0,0,0,0,0, 0,1,0,0,0,0, 0,0,1,0,0,0, 0,0,0,1,0,0, 0,0,0,0,1,0, 0,0,0,0,0,1};
+  float I_KH[36];
+  matrix_subtract(I, K_H, I_KH, 6, 6);
+
+  float P_new[36];
+  matrix_multiply(I_KH, P, P_new, 6, 6, 6);
+  memcpy(P, P_new, sizeof(P_new));
+
+  // Model Prediction
+  // State prediction
+  float sinPhiX = sin(phiX);
+  float cosPhiX = cos(phiX);
+  float tanPhiY = tan(phiY);
+  float cosPhiY = cos(phiY);
+
+  phiX = phiX - bx*dt + (gyroX + sinPhiX*tanPhiY*gyroY + cosPhiX*tanPhiY*gyroZ)*dt;
+  phiY = phiY - by*dt + (cosPhiX*gyroY - sinPhiX*gyroZ)*dt;
+  if (cosPhiY != 0) {
+    phiZ = phiZ - bz*dt + ((sinPhiX/cosPhiY)*gyroY + (cosPhiX/cosPhiY)*gyroZ)*dt;
+  } else {
+    // Avoid division by zero
+    phiZ = phiZ - bz*dt;
+  }
+
+  // Covariance prediction
+  float F[36] = {
+    1, -dt, 0, 0, 0, 0,
+    0, 1, 0, 0, 0, 0,
+    0, 0, 1, -dt, 0, 0,
+    0, 0, 0, 1, 0, 0,
+    0, 0, 0, 0, 1, -dt,
+    0, 0, 0, 0, 0, 1
+  };
+  float Ft[36];
+  matrix_transpose(F, Ft, 6, 6);
   
-
-  P00 = - P00*(K00 - 1) - K01*P20 - K02*P40;
-  P01 = - P01*(K00 - 1) - K01*P21 - K02*P41;
-  P02 = - P02*(K00 - 1) - K01*P22 - K02*P42;
-  P03 = - P03*(K00 - 1) - K01*P23 - K02*P43;
-  P04 = - P04*(K00 - 1) - K01*P24 - K02*P44;
-  P05 = - P05*(K00 - 1) - K01*P25 - K02*P45;
-
-  P10 = P10 - K10*P00 - K11*P20 - K12*P40;
-  P11 = P11 - K10*P01 - K11*P21 - K12*P41;
-  P12 = P12 - K10*P02 - K11*P22 - K12*P42;
-  P13 = P13 - K10*P03 - K11*P23 - K12*P43;
-  P14 = P14 - K10*P04 - K11*P24 - K12*P44;
-  P15 = P15 - K10*P05 - K11*P25 - K12*P45;
-
-  P20 = - P20*(K21 - 1) - K20*P00 - K22*P40;
-  P21 = - P21*(K21 - 1) - K20*P01 - K22*P41;
-  P22 = - P22*(K21 - 1) - K20*P02 - K22*P42;
-  P23 = - P23*(K21 - 1) - K20*P03 - K22*P43;
-  P24 = - P24*(K21 - 1) - K20*P04 - K22*P44;
-  P25 = - P25*(K21 - 1) - K20*P05 - K22*P45;
-
-  P30 = P30 - K30*P00 - K31*P20 - K32*P40;
-  P31 = P31 - K30*P01 - K31*P21 - K32*P41;
-  P32 = P32 - K30*P02 - K31*P22 - K32*P42;
-  P33 = P33 - K30*P03 - K31*P23 - K32*P43;
-  P34 = P34 - K30*P04 - K31*P24 - K32*P44;
-  P35 = P35 - K30*P05 - K31*P25 - K32*P45;
-
-  P40 = - P40*(K42 - 1) - K40*P00 - K41*P20;
-  P41 = - P41*(K42 - 1) - K40*P01 - K41*P21;
-  P42 = - P42*(K42 - 1) - K40*P02 - K41*P22;
-  P43 = - P43*(K42 - 1) - K40*P03 - K41*P23;
-  P44 = - P44*(K42 - 1) - K40*P04 - K41*P24;
-  P45 = - P45*(K42 - 1) - K40*P05 - K41*P25;
-
-  P50 = P50 - K50*P00 - K51*P20 - K52*P40;
-  P51 = P51 - K50*P01 - K51*P21 - K52*P41;
-  P52 = P52 - K50*P02 - K51*P22 - K52*P42;
-  P53 = P53 - K50*P03 - K51*P23 - K52*P43;
-  P54 = P54 - K50*P04 - K51*P24 - K52*P44;
-  P55 = P55 - K50*P05 - K51*P25 - K52*P45;
-
-  //Model Prediction
-
-  //State prediction
-  phiX = phiX - bx*dt + (gyroX + sin(phiX)*tan(phiY)*gyroY + cos(phiX)*tan(phiY)*gyroZ)*dt;
-  phiY = phiY - by*dt + (cos(phiX)*gyroY - sin(phiX)*gyroZ)*dt;
-  phiZ = phiZ - bz*dt + ((sin(phiX)/cos(phiY))*gyroY + (cos(phiX)/cos(phiY))*gyroZ)*dt;
-
-  //Covariance prediction
-
-  P00 = P00 + Qa - P10*dt - dt*(P01 - P11*dt);
-  P01 = P01 - P11*dt;
-  P02 = P02 - P12*dt - dt*(P03 - P13*dt);
-  P03 = P03 - P13*dt;
-  P04 = P04 - P14*dt - dt*(P05 - P15*dt);
-  P05 = P05 - P15*dt;
-
-  P10 = P10 - P11*dt;
-  P11 = P11 + Qb;
-  P12 = P12 - P13*dt;
-  P13 = P13;
-  P14 = P14 - P15*dt;
-  P15 = P15;
-
-  P20 = P20 - P30*dt - dt*(P21 - P31*dt);
-  P21 = P21 - P31*dt;
-  P22 = P22 - P32*dt - dt*(P23 - P33*dt) + Qa;
-  P23 = P23 - P33*dt;
-  P24 = P24 - P34*dt - dt*(P25 - P35*dt);
-  P25 = P25 - P35*dt;
-
-  P30 = P30 - P31*dt;
-  P31 = P31;
-  P32 = P32 - P33*dt;
-  P33 = P33 + Qb;
-  P34 = P34 - P35*dt;
-  P35 = P35;
-
-  P40 = P40 - P50*dt - dt*(P41 - P51*dt);
-  P41 = P41 - P51*dt;
-  P42 = P42 - P52*dt - dt*(P43 - P53*dt);
-  P43 = P43 - P53*dt;
-  P44 = P44 - P54*dt - dt*(P45 - P55*dt) + Qa;
-  P45 = P45 - P55*dt;
-
-  P50 = P50 - P51*dt;
-  P51 = P51;
-  P52 = P52 - P53*dt;
-  P53 = P53;
-  P54 = P54 - P55*dt;
-  P55 = P55 + Qb;
+  float P_F_t[36];
+  matrix_multiply(P, Ft, P_F_t, 6, 6, 6);
   
-  
+  float F_P_Ft[36];
+  matrix_multiply(F, P_F_t, F_P_Ft, 6, 6, 6);
+
+  float Q[36] = {
+    Qa, 0, 0, 0, 0, 0,
+    0, Qb, 0, 0, 0, 0,
+    0, 0, Qa, 0, 0, 0,
+    0, 0, 0, Qb, 0, 0,
+    0, 0, 0, 0, Qa, 0,
+    0, 0, 0, 0, 0, Qb
+  };
+
+  matrix_add(F_P_Ft, Q, P, 6, 6);
 }

@@ -111,15 +111,7 @@ typedef enum
     ADXL345_RANGE_2G           = 0b00
 } adxl345_range_t;
 
-#ifndef VECTOR_STRUCT_H
-#define VECTOR_STRUCT_H
-struct Vector
-{
-    float XAxis;
-    float YAxis;
-    float ZAxis;
-};
-#endif
+#include "Matrix.h"
 
 struct Activites
 {
